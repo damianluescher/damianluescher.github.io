@@ -1,3 +1,79 @@
-<html>
-"Hello world!"
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Damian Shots</title>
+  <style>
+    body{font-family:system-ui;margin:2rem auto;max-width:60rem}
+    h1{margin-bottom:1.5rem}
+    #grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:1rem}
+    .card{border:1px solid #ccc;border-radius:8px;overflow:hidden;background:#fafafa}
+    .card img{width:100%;display:block;aspect-ratio:1/1;object-fit:cover}
+    .card .pad{padding:.5rem .75rem}
+    form{margin-top:2rem;display:grid;gap:.75rem;grid-template-columns:1fr 1fr}
+    form input,form button,form textarea{font:inherit;padding:.4rem .6rem;border:1px solid #ccc;border-radius:4px}
+    form textarea{resize:vertical}
+    form button{grid-column:span 2;cursor:pointer;background:#0069ff;color:white}
+  </style>
+</head>
+<body>
+  <h1>Damian Shots</h1>
+
+  <section id="grid"></section>
+
+  <h2>Add a new shot</h2>
+  <form id="add">
+    <input name="shoot_id"   placeholder="Shoot ID"    required />
+    <input name="shot_name"  placeholder="Shot name"   required />
+    <textarea name="prompt"  placeholder="Prompt"      rows="3" required></textarea>
+    <input name="ai_image_url" placeholder="AI image URL" required />
+    <button>Add shot</button>
+  </form>
+
+  <script type="module">
+    import PocketBase from
+      'https://cdn.jsdelivr.net/npm/pocketbase/dist/pocketbase.es.mjs';
+
+    const pb   = new PocketBase('https://pb04.toiwxr.easypanel.host');
+    const grid = document.getElementById('grid');
+
+    /** Render the entire collection (newest first) */
+    async function render() {
+      const shots = await pb.collection('damian_shots')
+                            .getFullList({ sort:'-created' });
+      grid.innerHTML = shots.map(cardHTML).join('');
+    }
+
+    /** Card markup helper */
+    function cardHTML(r){
+      const img = r.ai_image_url || 'https://placehold.co/600?text=No+Image';
+      return `
+        <article class="card">
+          <img src="${img}" alt="${r.shot_name}">
+          <div class="pad">
+            <strong>${r.shot_name}</strong><br>
+            <small>Shoot ID: ${r.shoot_id}</small><br>
+            <em>${r.prompt}</em>
+          </div>
+        </article>`;
+    }
+
+    /** Live updates */
+    pb.collection('damian_shots').subscribe('*', render);
+
+    /** Handle create form */
+    document.getElementById('add').addEventListener('submit', async e=>{
+      e.preventDefault();
+      const data = Object.fromEntries(new FormData(e.target));
+      try{
+        await pb.collection('damian_shots').create(data);
+        e.target.reset();
+      }catch(err){
+        alert('Failed to add: '+err.message);
+      }
+    });
+
+    render();      // initial load
+  </script>
+</body>
 </html>
