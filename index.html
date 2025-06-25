@@ -2,78 +2,139 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Damian Shots</title>
+  <title>Damian Shots + AI Generator</title>
   <style>
+    /* layout */
     body{font-family:system-ui;margin:2rem auto;max-width:60rem}
     h1{margin-bottom:1.5rem}
+
+    /* gallery grid */
     #grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:1rem}
     .card{border:1px solid #ccc;border-radius:8px;overflow:hidden;background:#fafafa}
-    .card img{width:100%;display:block;aspect-ratio:1/1;object-fit:cover}
+    .card img{width:100%;aspect-ratio:1/1;object-fit:cover}
     .card .pad{padding:.5rem .75rem}
+
+    /* forms */
     form{margin-top:2rem;display:grid;gap:.75rem;grid-template-columns:1fr 1fr}
     form input,form button,form textarea{font:inherit;padding:.4rem .6rem;border:1px solid #ccc;border-radius:4px}
-    form textarea{resize:vertical}
     form button{grid-column:span 2;cursor:pointer;background:#0069ff;color:white}
+    #result img{max-width:100%;border-radius:8px;border:1px solid #ddd;margin-top:1rem}
+    .small{font-size:.875rem;color:#555}
   </style>
 </head>
 <body>
-  <h1>Damian Shots</h1>
+  <h1>Damian Shots</h1>
 
+  <!-- live gallery -->
   <section id="grid"></section>
 
-  <h2>Add a new shot</h2>
-  <form id="add">
-    <input name="shoot_id"   placeholder="Shoot ID"    required />
-    <input name="shot_name"  placeholder="Shot name"   required />
-    <textarea name="prompt"  placeholder="Prompt"      rows="3" required></textarea>
-    <input name="ai_image_url" placeholder="AI image URL" required />
-    <button>Add shot</button>
+  <!-- one‑time OpenAI key (stored only locally) -->
+  <details id="apiKeyBox" open>
+    <summary>⚙️ OpenAI API key</summary>
+    <form id="keyForm" style="margin-top:.5rem">
+      <input type="text" id="apiKey" placeholder="sk-…" required />
+      <button>Save</button>
+    </form>
+    <p class="small">Key lives in <code>localStorage</code>; never sent to the server.</p>
+  </details>
+
+  <!-- generate + auto‑save into PocketBase -->
+  <h2>Generate a new shot</h2>
+  <form id="genForm">
+    <input type="text" id="shootId"  placeholder="Shoot ID"   required />
+    <input type="text" id="shotName" placeholder="Shot name"  required />
+    <textarea id="prompt" rows="3" placeholder="Describe the image you want…" required></textarea>
+    <button>Generate & save</button>
   </form>
 
-  <script type="module">
-    import PocketBase from
-      'https://cdn.jsdelivr.net/npm/pocketbase/dist/pocketbase.es.mjs';
+  <section id="result"></section>
 
+  <script type="module">
+    import PocketBase from 'https://cdn.jsdelivr.net/npm/pocketbase/dist/pocketbase.es.mjs';
+
+    // ────────────────────────────────────────────────────────────────────────────
+    // PocketBase setup
+    // ────────────────────────────────────────────────────────────────────────────
     const pb   = new PocketBase('https://pb04.toiwxr.easypanel.host');
     const grid = document.getElementById('grid');
 
-    /** Render the entire collection (newest first) */
-    async function render() {
-      const shots = await pb.collection('damian_shots')
-                            .getFullList({ sort:'-created' });
+    /** Render gallery (newest first) */
+    async function render(){
+      const shots = await pb.collection('damian_shots').getFullList({sort:'-created'});
       grid.innerHTML = shots.map(cardHTML).join('');
     }
 
     /** Card markup helper */
     function cardHTML(r){
       const img = r.ai_image_url || 'https://placehold.co/600?text=No+Image';
-      return `
-        <article class="card">
-          <img src="${img}" alt="${r.shot_name}">
-          <div class="pad">
-            <strong>${r.shot_name}</strong><br>
-            <small>Shoot ID: ${r.shoot_id}</small><br>
-            <em>${r.prompt}</em>
-          </div>
-        </article>`;
+      return `<article class="card">
+                <img src="${img}" alt="${r.shot_name}">
+                <div class="pad">
+                  <strong>${r.shot_name}</strong><br>
+                  <small>Shoot ID: ${r.shoot_id}</small><br>
+                  <em>${r.prompt}</em>
+                </div>
+              </article>`;
     }
 
-    /** Live updates */
-    pb.collection('damian_shots').subscribe('*', render);
+    pb.collection('damian_shots').subscribe('*', render); // live updates
+    render();                                            // initial load
 
-    /** Handle create form */
-    document.getElementById('add').addEventListener('submit', async e=>{
+    // ────────────────────────────────────────────────────────────────────────────
+    // OpenAI API‑key handling (browser‑only)
+    // ────────────────────────────────────────────────────────────────────────────
+    const keyField   = document.getElementById('apiKey');
+    const keyInStore = localStorage.getItem('OPENAI_API_KEY');
+    if(keyInStore) keyField.value = keyInStore;
+
+    document.getElementById('keyForm').addEventListener('submit', e=>{
       e.preventDefault();
-      const data = Object.fromEntries(new FormData(e.target));
-      try{
-        await pb.collection('damian_shots').create(data);
-        e.target.reset();
-      }catch(err){
-        alert('Failed to add: '+err.message);
-      }
+      localStorage.setItem('OPENAI_API_KEY', keyField.value.trim());
+      alert('Saved ✔︎');
     });
 
-    render();      // initial load
+    // ────────────────────────────────────────────────────────────────────────────
+    // Generate + push to PocketBase (URL‑only version)
+    // ────────────────────────────────────────────────────────────────────────────
+    const genForm = document.getElementById('genForm');
+    const result  = document.getElementById('result');
+
+    genForm.addEventListener('submit', async e=>{
+      e.preventDefault();
+
+      const prompt    = document.getElementById('prompt').value.trim();
+      const shoot_id  = document.getElementById('shootId').value.trim();
+      const shot_name = document.getElementById('shotName').value.trim();
+      const apiKey    = localStorage.getItem('OPENAI_API_KEY');
+      if(!apiKey){ alert('Enter your API key first.'); return; }
+
+      const btn = genForm.querySelector('button');
+      btn.disabled = true;
+      result.textContent = '⏳ Generating…';
+
+      try{
+        // 1. generate image via OpenAI
+        const res = await fetch('https://api.openai.com/v1/images/generations',{
+          method:'POST',
+          headers:{'Content-Type':'application/json','Authorization':`Bearer ${apiKey}`},
+          body: JSON.stringify({model:'dall-e-3',prompt,n:1,size:'1024x1024'})
+        });
+        if(!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        const url  = data.data[0].url;
+
+        // 2. store record (link only)
+        await pb.collection('damian_shots').create({shoot_id,shot_name,prompt,ai_image_url:url});
+
+        // 3. UI feedback
+        result.innerHTML = `<img src="${url}" alt="Generated image"><p class="small">Saved to PocketBase ✔︎</p>`;
+      }catch(err){
+        console.error(err);
+        result.innerHTML = `<p class="small" style="color:#d22">❌ ${err.message}</p>`;
+      }finally{
+        btn.disabled = false;
+      }
+    });
   </script>
 </body>
 </html>
