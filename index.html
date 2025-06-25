@@ -10,9 +10,12 @@
 
     /* gallery grid */
     #grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:1rem}
-    .card{border:1px solid #ccc;border-radius:8px;overflow:hidden;background:#fafafa}
+    .card{border:1px solid #ccc;border-radius:8px;overflow:hidden;background:#fafafa;position:relative}
     .card img{width:100%;aspect-ratio:1/1;object-fit:cover}
-    .card .pad{padding:.5rem .75rem}
+    .card .pad{padding:.5rem .75rem;font-size:.9rem}
+
+    /* delete button */
+    .del{margin-top:.5rem;background:#d22;color:#fff;border:0;padding:.25rem .6rem;font-size:.75rem;border-radius:4px;cursor:pointer}
 
     /* forms */
     form{margin-top:2rem;display:grid;gap:.75rem;grid-template-columns:1fr 1fr}
@@ -41,8 +44,8 @@
   <!-- generate + auto‑save into PocketBase -->
   <h2>Generate a new shot</h2>
   <form id="genForm">
-    <input type="text" id="shootId"  placeholder="Shoot ID"   required />
-    <input type="text" id="shotName" placeholder="Shot name"  required />
+    <input type="text" id="title"     placeholder="Title"       required />
+    <input type="text" id="shotName"  placeholder="Shot (e.g. angle)" required />
     <textarea id="prompt" rows="3" placeholder="Describe the image you want…" required></textarea>
     <button>Generate & save</button>
   </form>
@@ -67,18 +70,36 @@
     /** Card markup helper */
     function cardHTML(r){
       const img = r.ai_image_url || 'https://placehold.co/600?text=No+Image';
-      return `<article class="card">
+      return `<article class="card" data-id="${r.id}">
                 <img src="${img}" alt="${r.shot_name}">
                 <div class="pad">
-                  <strong>${r.shot_name}</strong><br>
-                  <small>Shoot ID: ${r.shoot_id}</small><br>
-                  <em>${r.prompt}</em>
+                  <strong>${r.shoot_id}</strong><br>
+                  <small>Shot: ${r.shot_name}</small><br>
+                  <em>${r.prompt}</em><br>
+                  <button class="del">Delete</button>
                 </div>
               </article>`;
     }
 
-    pb.collection('damian_shots').subscribe('*', render); // live updates
-    render();                                            // initial load
+    // Live updates
+    pb.collection('damian_shots').subscribe('*', render);
+    render();
+
+    // ────────────────────────────────────────────────────────────────────────────
+    // Deleting records (event‑delegation)
+    // ────────────────────────────────────────────────────────────────────────────
+    grid.addEventListener('click', async e=>{
+      const btn = e.target.closest('.del');
+      if(!btn) return;
+      const card = btn.closest('.card');
+      const id   = card.dataset.id;
+      if(!confirm('Delete this shot?')) return;
+      try{
+        await pb.collection('damian_shots').delete(id);
+      }catch(err){
+        alert('Error deleting: '+err.message);
+      }
+    });
 
     // ────────────────────────────────────────────────────────────────────────────
     // OpenAI API‑key handling (browser‑only)
@@ -103,7 +124,7 @@
       e.preventDefault();
 
       const prompt    = document.getElementById('prompt').value.trim();
-      const shoot_id  = document.getElementById('shootId').value.trim();
+      const title     = document.getElementById('title').value.trim(); // maps to shoot_id
       const shot_name = document.getElementById('shotName').value.trim();
       const apiKey    = localStorage.getItem('OPENAI_API_KEY');
       if(!apiKey){ alert('Enter your API key first.'); return; }
@@ -124,7 +145,7 @@
         const url  = data.data[0].url;
 
         // 2. store record (link only)
-        await pb.collection('damian_shots').create({shoot_id,shot_name,prompt,ai_image_url:url});
+        await pb.collection('damian_shots').create({shoot_id:title,shot_name,prompt,ai_image_url:url});
 
         // 3. UI feedback
         result.innerHTML = `<img src="${url}" alt="Generated image"><p class="small">Saved to PocketBase ✔︎</p>`;
