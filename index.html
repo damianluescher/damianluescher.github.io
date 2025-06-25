@@ -2,156 +2,147 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Damian Shots + AI Generator</title>
+  <title>Shot Visualizer</title>
   <style>
-    /* layout */
     body{font-family:system-ui;margin:2rem auto;max-width:60rem}
     h1{margin-bottom:1.5rem}
 
-    /* gallery grid */
     #grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:1rem}
     .card{border:1px solid #ccc;border-radius:8px;overflow:hidden;background:#fafafa;position:relative}
     .card img{width:100%;aspect-ratio:1/1;object-fit:cover}
     .card .pad{padding:.5rem .75rem;font-size:.9rem}
 
-    /* delete button */
-    .del{margin-top:.5rem;background:#d22;color:#fff;border:0;padding:.25rem .6rem;font-size:.75rem;border-radius:4px;cursor:pointer}
+    .btn{margin-top:.5rem;border:0;padding:.25rem .6rem;font-size:.75rem;border-radius:4px;cursor:pointer}
+    .edit{background:#0069ff;color:#fff;margin-right:.3rem}
+    .del{background:#d22;color:#fff}
 
-    /* forms */
     form{margin-top:2rem;display:grid;gap:.75rem;grid-template-columns:1fr 1fr}
     form input,form button,form textarea{font:inherit;padding:.4rem .6rem;border:1px solid #ccc;border-radius:4px}
     form button{grid-column:span 2;cursor:pointer;background:#0069ff;color:white}
-    #result img{max-width:100%;border-radius:8px;border:1px solid #ddd;margin-top:1rem}
+    #result{margin-top:1rem;min-height:2rem}
+    #result img{max-width:100%;border-radius:8px;border:1px solid #ddd;margin-top:.5rem}
     .small{font-size:.875rem;color:#555}
+    .error{color:#d22}
   </style>
 </head>
 <body>
-  <h1>Damian Shots</h1>
+  <h1>Shot Visualizer</h1>
 
-  <!-- live gallery -->
   <section id="grid"></section>
 
-  <!-- one‑time OpenAI key (stored only locally) -->
-  <details id="apiKeyBox" open>
-    <summary>⚙️ OpenAI API key</summary>
-    <form id="keyForm" style="margin-top:.5rem">
-      <input type="text" id="apiKey" placeholder="sk-…" required />
-      <button>Save</button>
-    </form>
-    <p class="small">Key lives in <code>localStorage</code>; never sent to the server.</p>
-  </details>
-
-  <!-- generate + auto‑save into PocketBase -->
   <h2>Generate a new shot</h2>
-  <form id="genForm">
-    <input type="text" id="title"     placeholder="Title"       required />
-    <input type="text" id="shotName"  placeholder="Shot (e.g. angle)" required />
-    <textarea id="prompt" rows="3" placeholder="Describe the image you want…" required></textarea>
+  <form id="genForm" novalidate>
+    <input type="text" id="title" placeholder="Title" />
+    <input type="text" id="shotName" placeholder="Shot (e.g. angle)" />
+    <textarea id="prompt" rows="3" placeholder="Describe the image you want…"></textarea>
     <button>Generate & save</button>
   </form>
 
-  <section id="result"></section>
+  <section id="result" aria-live="polite"></section>
 
   <script type="module">
     import PocketBase from 'https://cdn.jsdelivr.net/npm/pocketbase/dist/pocketbase.es.mjs';
 
     // ────────────────────────────────────────────────────────────────────────────
-    // PocketBase setup
+    // Config (demo only – exposed)
     // ────────────────────────────────────────────────────────────────────────────
+    const OPENAI_API_KEY = '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';
     const pb   = new PocketBase('https://pb04.toiwxr.easypanel.host');
     const grid = document.getElementById('grid');
 
-    /** Render gallery (newest first) */
-    async function render(){
-      const shots = await pb.collection('damian_shots').getFullList({sort:'-created'});
-      grid.innerHTML = shots.map(cardHTML).join('');
-    }
-
-    /** Card markup helper */
-    function cardHTML(r){
+    // ────────────────────────────────────────────────────────────────────────────
+    // Gallery rendering
+    // ────────────────────────────────────────────────────────────────────────────
+    const cardHTML = r => {
       const img = r.ai_image_url || 'https://placehold.co/600?text=No+Image';
-      return `<article class="card" data-id="${r.id}">
+      return `<article class="card" data-id="${r.id}" data-title="${r.shoot_id}" data-shot="${r.shot_name}">
                 <img src="${img}" alt="${r.shot_name}">
                 <div class="pad">
                   <strong>${r.shoot_id}</strong><br>
                   <small>Shot: ${r.shot_name}</small><br>
                   <em>${r.prompt}</em><br>
-                  <button class="del">Delete</button>
+                  <button class="btn edit">Edit</button><button class="btn del">Delete</button>
                 </div>
               </article>`;
-    }
+    };
 
-    // Live updates
+    const render = async () => {
+      const shots = await pb.collection('damian_shots').getFullList({sort:'-created'});
+      grid.innerHTML = shots.map(cardHTML).join('');
+    };
+
     pb.collection('damian_shots').subscribe('*', render);
     render();
 
     // ────────────────────────────────────────────────────────────────────────────
-    // Deleting records (event‑delegation)
+    // Delete & Edit (delegation)
     // ────────────────────────────────────────────────────────────────────────────
-    grid.addEventListener('click', async e=>{
-      const btn = e.target.closest('.del');
-      if(!btn) return;
-      const card = btn.closest('.card');
-      const id   = card.dataset.id;
-      if(!confirm('Delete this shot?')) return;
-      try{
-        await pb.collection('damian_shots').delete(id);
-      }catch(err){
-        alert('Error deleting: '+err.message);
+    grid.addEventListener('click', async e => {
+      const card = e.target.closest('.card');
+      if(!card) return;
+      const id = card.dataset.id;
+
+      if(e.target.classList.contains('del')){
+        if(!confirm('Delete this shot?')) return;
+        try{ await pb.collection('damian_shots').delete(id);}catch(err){ alert('Error deleting: '+err.message);}return;
+      }
+
+      if(e.target.classList.contains('edit')){
+        const newTitle = prompt('Edit title', card.dataset.title);
+        if(newTitle===null) return;
+        const newShot  = prompt('Edit shot name', card.dataset.shot);
+        if(newShot===null) return;
+        try{
+          await pb.collection('damian_shots').update(id,{shoot_id:newTitle.trim(),shot_name:newShot.trim()});
+        }catch(err){ alert('Error updating: '+err.message);}return;
       }
     });
 
     // ────────────────────────────────────────────────────────────────────────────
-    // OpenAI API‑key handling (browser‑only)
-    // ────────────────────────────────────────────────────────────────────────────
-    const keyField   = document.getElementById('apiKey');
-    const keyInStore = localStorage.getItem('OPENAI_API_KEY');
-    if(keyInStore) keyField.value = keyInStore;
-
-    document.getElementById('keyForm').addEventListener('submit', e=>{
-      e.preventDefault();
-      localStorage.setItem('OPENAI_API_KEY', keyField.value.trim());
-      alert('Saved ✔︎');
-    });
-
-    // ────────────────────────────────────────────────────────────────────────────
-    // Generate + push to PocketBase (URL‑only version)
+    // Generation form with client‑side validation
     // ────────────────────────────────────────────────────────────────────────────
     const genForm = document.getElementById('genForm');
     const result  = document.getElementById('result');
 
-    genForm.addEventListener('submit', async e=>{
+    genForm.addEventListener('submit', async e => {
       e.preventDefault();
 
-      const prompt    = document.getElementById('prompt').value.trim();
-      const title     = document.getElementById('title').value.trim(); // maps to shoot_id
+      const title     = document.getElementById('title').value.trim();
       const shot_name = document.getElementById('shotName').value.trim();
-      const apiKey    = localStorage.getItem('OPENAI_API_KEY');
-      if(!apiKey){ alert('Enter your API key first.'); return; }
+      const prompt    = document.getElementById('prompt').value.trim();
 
       const btn = genForm.querySelector('button');
       btn.disabled = true;
+
+      // custom validation
+      if(!title || !shot_name || !prompt){
+        result.innerHTML = '<p class="small error">❌ Please fill Title, Shot and Prompt.</p>';
+        btn.disabled = false;
+        return;
+      }
+
       result.textContent = '⏳ Generating…';
 
       try{
-        // 1. generate image via OpenAI
+        // 1. OpenAI
         const res = await fetch('https://api.openai.com/v1/images/generations',{
           method:'POST',
-          headers:{'Content-Type':'application/json','Authorization':`Bearer ${apiKey}`},
+          headers:{'Content-Type':'application/json','Authorization':`Bearer ${OPENAI_API_KEY}`},
           body: JSON.stringify({model:'dall-e-3',prompt,n:1,size:'1024x1024'})
         });
         if(!res.ok) throw new Error(await res.text());
         const data = await res.json();
         const url  = data.data[0].url;
 
-        // 2. store record (link only)
+        // 2. save record
         await pb.collection('damian_shots').create({shoot_id:title,shot_name,prompt,ai_image_url:url});
 
-        // 3. UI feedback
-        result.innerHTML = `<img src="${url}" alt="Generated image"><p class="small">Saved to PocketBase ✔︎</p>`;
+        // 3. UI
+        result.innerHTML = `<img src="${url}" alt="Generated image"><p class="small">Saved ✔︎</p>`;
+        genForm.reset();
       }catch(err){
         console.error(err);
-        result.innerHTML = `<p class="small" style="color:#d22">❌ ${err.message}</p>`;
+        result.innerHTML = `<p class="small error">❌ ${err.message}</p>`;
       }finally{
         btn.disabled = false;
       }
