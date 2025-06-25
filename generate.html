@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>AI Image Generator</title>
+  <style>
+    body{font-family:system-ui;margin:2rem auto;max-width:40rem}
+    h1{margin-bottom:1.25rem}
+    form{display:flex;gap:.5rem;margin-bottom:1rem}
+    input[type=text]{flex:1;padding:.45rem .6rem;font:inherit;border:1px solid #aaa;border-radius:6px}
+    button{padding:.45rem 1rem;font:inherit;border:0;background:#0069ff;color:#fff;border-radius:6px;cursor:pointer}
+    #apiKeyBox{margin-bottom:1rem}
+    #result img{max-width:100%;border-radius:8px;border:1px solid #ddd}
+    .small{font-size:.875rem;color:#555}
+  </style>
+</head>
+<body>
+  <h1>AI Image Generator</h1>
+
+  <!-- One-time API key box -->
+  <details id="apiKeyBox" open>
+    <summary>⚙️ OpenAI API key (stored only in this browser)</summary>
+    <form id="keyForm" style="margin-top:.5rem">
+      <input type="text" id="apiKey" placeholder="sk-..." required />
+      <button>Save</button>
+    </form>
+    <p class="small">The key is kept in <code>localStorage</code> so you won't have to re-enter it.</p>
+  </details>
+
+  <!-- Prompt input -->
+  <form id="genForm">
+    <input type="text" id="prompt" placeholder="Describe the image you want…" required />
+    <button>Generate</button>
+  </form>
+
+  <section id="result"></section>
+
+  <script type="module">
+    // ────────────────────────────────────────────────────────────────────────────
+    // 1. API KEY HANDLING
+    // ────────────────────────────────────────────────────────────────────────────
+    const keyField = document.getElementById('apiKey');
+    const keyInStore = localStorage.getItem('OPENAI_API_KEY');
+    if (keyInStore) keyField.value = keyInStore;
+    document.getElementById('keyForm').addEventListener('submit', e => {
+      e.preventDefault();
+      localStorage.setItem('OPENAI_API_KEY', keyField.value.trim());
+      alert('Saved ✔︎  (you can collapse this box now)');
+    });
+
+    // ────────────────────────────────────────────────────────────────────────────
+    // 2. GENERATE IMAGE
+    // ────────────────────────────────────────────────────────────────────────────
+    const genForm = document.getElementById('genForm');
+    const result  = document.getElementById('result');
+
+    genForm.addEventListener('submit', async e => {
+      e.preventDefault();
+      const prompt = document.getElementById('prompt').value.trim();
+      const apiKey = localStorage.getItem('OPENAI_API_KEY');
+      if (!apiKey) { alert('Enter your API key first.'); return; }
+
+      // UI feedback
+      genForm.querySelector('button').disabled = true;
+      result.innerHTML = '⏳ Generating…';
+
+      try {
+        const res = await fetch('https://api.openai.com/v1/images/generations', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`
+          },
+          body: JSON.stringify({
+            model: 'dall-e-3',   // or "dall-e-2"
+            prompt,
+            n: 1,
+            size: '1024x1024'
+          })
+        });
+
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        const url  = data.data[0].url;
+
+        result.innerHTML = `<img src="${url}" alt="AI image"><p class="small">Prompt: “${prompt}”</p>`;
+      } catch (err) {
+        console.error(err);
+        result.textContent = '❌ ' + err.message;
+      } finally {
+        genForm.querySelector('button').disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
+
